@@ -50,4 +50,8 @@ object FirebaseAuthRepository : AuthRepository {
         } catch (e: Exception) {
             Result.failure(Exception("No se pudo registrar: ${e.message}"))
         }
+
+    override fun haySesion(): Boolean = auth.currentUser != null
+
+    override fun cerrarSesion() = auth.signOut()
 }
