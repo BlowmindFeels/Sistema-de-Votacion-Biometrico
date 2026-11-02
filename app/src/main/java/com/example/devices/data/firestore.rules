@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /votaciones/{votacionId} {
+      allow read: if request.auth != null;
+      allow write: if false;   // solo se editan desde la consola
+
+      match /votos/{uid} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && get(/databases/$(database)/documents/votaciones/$(votacionId)).data.estado == 'ACTIVA'
+          && request.resource.data.keys().hasOnly(['opcionId', 'fecha']);
+        allow update, delete: if false;   // un voto no se cambia ni se borra
+      }
+    }
+  }
+}
