@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import com.example.devices.data.FakeVotacionRepository
+import com.example.devices.data.ApiVotacionRepository
 import com.example.devices.data.Votacion
 import com.example.devices.data.VotacionRepository
 
@@ -19,7 +19,7 @@ data class VotacionesUiState(
 
 class VotacionesViewModel : ViewModel() {
 
-    private val repo: VotacionRepository = FakeVotacionRepository
+    private val repo: VotacionRepository = ApiVotacionRepository
 
     private val _state = MutableStateFlow(VotacionesUiState())
     val state: StateFlow<VotacionesUiState> = _state.asStateFlow()

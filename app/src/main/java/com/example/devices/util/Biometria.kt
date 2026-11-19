@@ -6,6 +6,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import javax.crypto.Cipher
 
 object Biometria {
 
@@ -26,13 +27,16 @@ object Biometria {
 
     fun autenticar(
         activity: FragmentActivity,
-        onExito: () -> Unit,
+        cipher: Cipher,
+        onExito: (Cipher) -> Unit,
         onCancelado: () -> Unit,
         onError: (String) -> Unit
     ) {
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                onExito()
+                // El cipher solo queda habilitado por el Keystore tras la huella.
+                val c = result.cryptoObject?.cipher
+                if (c != null) onExito(c) else onError("La huella no habilitó la clave segura")
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -60,7 +64,7 @@ object Biometria {
             .setAllowedAuthenticators(AUTENTICADORES)
             .build()
 
-        prompt.authenticate(info)
+        prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
     }
 }
 

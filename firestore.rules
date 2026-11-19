@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Toda la persistencia de usuarios y votos se migró a los microservicios en Docker.
+    // Se deniegan accesos directos desde la app móvil a Firestore.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

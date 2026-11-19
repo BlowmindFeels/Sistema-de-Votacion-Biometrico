@@ -24,6 +24,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.example.devices.util.Biometria
 import com.example.devices.util.findFragmentActivity
+import com.example.devices.util.TokenSeguro
+import com.example.devices.data.SesionManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,13 +43,20 @@ fun DetalleVotacionScreen(
 
         val motivo = Biometria.mensajeNoDisponible(context)
         val activity = context.findFragmentActivity()
+        val preparado = if (motivo == null) TokenSeguro.preparar(context) else null
 
         when {
             motivo != null -> viewModel.huellaFallida(motivo)
             activity == null -> viewModel.huellaFallida("No se pudo abrir la verificación de huella")
+            preparado == null -> viewModel.huellaFallida("No se pudo acceder al almacén seguro de claves")
             else -> Biometria.autenticar(
                 activity = activity,
-                onExito = viewModel::huellaExitosa,
+                cipher = preparado.cipher,
+                onExito = { cipher ->
+                    TokenSeguro.usar(context, TokenSeguro.Preparado(cipher, preparado.cifrar), SesionManager.token)
+                        .onSuccess(viewModel::huellaExitosa)
+                        .onFailure { e -> viewModel.huellaFallida(e.message) }
+                },
                 onCancelado = { viewModel.huellaFallida(null) },
                 onError = { msg -> viewModel.huellaFallida(msg) }
             )

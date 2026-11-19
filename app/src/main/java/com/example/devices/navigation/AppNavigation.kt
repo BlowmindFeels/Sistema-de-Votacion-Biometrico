@@ -52,9 +52,8 @@ fun AppNavigation() {
         composable(
             route = Routes.RESULTADOS,
             arguments = listOf(navArgument("votacionId") { type = NavType.IntType })
-        ) { entry ->
-            val id = entry.arguments?.getInt("votacionId") ?: 0
-            ResultadosScreen(votacionId = id)
+        ) {
+            ResultadosScreen(onVolver = { navController.popBackStack() })
         }
     }
 }

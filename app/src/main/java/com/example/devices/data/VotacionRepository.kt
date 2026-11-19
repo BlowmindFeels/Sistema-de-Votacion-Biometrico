@@ -7,7 +7,9 @@ interface VotacionRepository {
     suspend fun listar(): Result<List<Votacion>>
     suspend fun obtener(id: Int): Result<Votacion>
     suspend fun yaVoto(votacionId: Int): Boolean
-    suspend fun votar(votacionId: Int, opcionId: Int): Result<Unit>
+    /** [token]: el JWT que se liberó del Keystore con la huella. */
+    suspend fun votar(votacionId: Int, opcionId: Int, token: String): Result<Unit>
+    suspend fun resultados(votacionId: Int): Result<Resultados>
 }
 
 object FakeVotacionRepository : VotacionRepository {
@@ -65,6 +67,16 @@ object FakeVotacionRepository : VotacionRepository {
         )
     )
 
+    private val conteo = mutableMapOf<Int, Int>() // opcionId -> votos
+
+    override suspend fun resultados(votacionId: Int): Result<Resultados> {
+        delay(300)
+        val v = votaciones.find { it.id == votacionId }
+            ?: return Result.failure(Exception("No se encontró la votación"))
+        val ops = v.opciones.map { OpcionResultado(it.id, it.nombre, conteo[it.id] ?: 0) }
+        return Result.success(Resultados(votacionId, ops.sumOf { it.votos }, ops))
+    }
+
     // Ids de votaciones en las que el usuario ya votó. Se pierde al cerrar la app.
     // Cuando exista el backend, esta regla la valida Voting-Service.
     private val votados = mutableSetOf<Int>()
@@ -83,7 +95,7 @@ object FakeVotacionRepository : VotacionRepository {
 
     override suspend fun yaVoto(votacionId: Int): Boolean = votacionId in votados
 
-    override suspend fun votar(votacionId: Int, opcionId: Int): Result<Unit> {
+    override suspend fun votar(votacionId: Int, opcionId: Int, token: String): Result<Unit> {
         delay(800)
         val v = votaciones.find { it.id == votacionId }
             ?: return Result.failure(Exception("No se encontró la votación"))
@@ -96,6 +108,7 @@ object FakeVotacionRepository : VotacionRepository {
             return Result.failure(Exception("Ya has votado en esta votación"))
 
         votados.add(votacionId)
+        conteo[opcionId] = (conteo[opcionId] ?: 0) + 1
         return Result.success(Unit)
     }
 }

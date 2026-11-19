@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import com.example.devices.data.FakeVotacionRepository
+import com.example.devices.data.ApiVotacionRepository
 import com.example.devices.data.Votacion
 import com.example.devices.data.VotacionRepository
 
@@ -26,7 +26,7 @@ data class DetalleUiState(
 
 class DetalleVotacionViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
 
-    private val repo: VotacionRepository = FakeVotacionRepository
+    private val repo: VotacionRepository = ApiVotacionRepository
     private val votacionId: Int = checkNotNull(savedStateHandle.get<Int>("votacionId"))
 
     private val _state = MutableStateFlow(DetalleUiState())
@@ -63,12 +63,12 @@ class DetalleVotacionViewModel(savedStateHandle: SavedStateHandle) : ViewModel()
         _state.update { it.copy(mostrarConfirmacion = false, pedirHuella = true, error = null) }
     }
 
-    // 2. La huella salió bien: ahora sí se registra el voto.
-    fun huellaExitosa() {
+    // 2. La huella salió bien y liberó el token del Keystore: ahora sí se vota.
+    fun huellaExitosa(token: String) {
         val opcionId = _state.value.opcionSeleccionada ?: return
         viewModelScope.launch {
             _state.update { it.copy(pedirHuella = false, enviando = true) }
-            repo.votar(votacionId, opcionId)
+            repo.votar(votacionId, opcionId, token)
                 .onSuccess { _state.update { it.copy(enviando = false, yaVoto = true) } }
                 .onFailure { e -> _state.update { it.copy(enviando = false, error = e.message) } }
         }

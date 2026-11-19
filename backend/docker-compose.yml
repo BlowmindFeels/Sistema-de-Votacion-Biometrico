@@ -1,66 +1,261 @@
+name: ${COMPOSE_PROJECT_NAME:-backend}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   auth-db:
-    image: postgres:16
-    container_name: votacion-auth-db
+    image: postgres:16.16-alpine3.24
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: auth
       POSTGRES_USER: auth_user
-      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
-    ports: ["5432:5432"]
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:?Define AUTH_DB_PASSWORD en backend/.env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+      TZ: UTC
     volumes:
       - auth-data:/var/lib/postgresql/data
-      - ./db/auth/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/auth/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
-      retries: 10
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - app
+
+  auth-service:
+    build:
+      context: ./auth-service
+    restart: unless-stopped
+    init: true
+    logging: *default-logging
+    environment:
+      DB_HOST: auth-db
+      DB_PORT: "5432"
+      DB_USER: auth_user
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:?Define AUTH_DB_PASSWORD en backend/.env}
+      DB_NAME: auth
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en backend/.env}
+      TZ: UTC
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app
 
   voting-db:
-    image: postgres:16
-    container_name: votacion-voting-db
+    image: postgres:16.16-alpine3.24
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: voting
       POSTGRES_USER: voting_user
-      POSTGRES_PASSWORD: ${VOTING_DB_PASSWORD}
-    ports: ["5433:5432"]
+      POSTGRES_PASSWORD: ${VOTING_DB_PASSWORD:?Define VOTING_DB_PASSWORD en backend/.env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+      REPL_PASSWORD: ${REPL_PASSWORD:?Define REPL_PASSWORD en backend/.env}
+      TZ: UTC
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=5
+      - -c
+      - timezone=UTC
     volumes:
       - voting-data:/var/lib/postgresql/data
-      - ./db/voting/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/voting/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/voting/replication.sql:/docker-entrypoint-initdb.d/02-replication.sql:ro
+      - ./db/voting/pg_hba_repl.sh:/docker-entrypoint-initdb.d/03-pg_hba.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U voting_user -d voting"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
-      retries: 10
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - app
+
+  voting-replica:
+    image: postgres:16.16-alpine3.24
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      PGUSER: voting_user
+      PGDATABASE: voting
+      PGPASSWORD: ${REPL_PASSWORD:?Define REPL_PASSWORD en backend/.env}
+      TZ: UTC
+    user: postgres
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+          pg_basebackup -h voting-db -U replicador -D /var/lib/postgresql/data -Fp -Xs -R -P
+        fi
+        exec postgres -c hot_standby=on -c timezone=UTC
+    depends_on:
+      voting-db:
+        condition: service_healthy
+    volumes:
+      - voting-replica-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${PGUSER}\" -d \"$${PGDATABASE}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    networks:
+      - app
+
+  voting-service:
+    build:
+      context: ./voting-service
+    restart: unless-stopped
+    init: true
+    logging: *default-logging
+    environment:
+      DB_PRIMARY_HOST: voting-db
+      DB_REPLICA_HOST: voting-replica
+      DB_USER: voting_user
+      DB_PASSWORD: ${VOTING_DB_PASSWORD:?Define VOTING_DB_PASSWORD en backend/.env}
+      DB_NAME: voting
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en backend/.env}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:?Define RABBIT_USER en backend/.env}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Define RABBIT_PASSWORD en backend/.env}
+      TZ: UTC
+    depends_on:
+      voting-db:
+        condition: service_healthy
+      voting-replica:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app
 
   notification-db:
-    image: postgres:16
-    container_name: votacion-notification-db
+    image: postgres:16.16-alpine3.24
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: notification
       POSTGRES_USER: notif_user
-      POSTGRES_PASSWORD: ${NOTIF_DB_PASSWORD}
-    ports: ["5434:5432"]
+      POSTGRES_PASSWORD: ${NOTIF_DB_PASSWORD:?Define NOTIF_DB_PASSWORD en backend/.env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+      TZ: UTC
     volumes:
       - notification-data:/var/lib/postgresql/data
-      - ./db/notification/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/notification/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notif_user -d notification"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
-      retries: 10
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - app
+
+  notification-service:
+    build:
+      context: ./notification-service
+    restart: unless-stopped
+    init: true
+    logging: *default-logging
+    environment:
+      DB_HOST: notification-db
+      DB_PORT: "5432"
+      DB_USER: notif_user
+      DB_PASSWORD: ${NOTIF_DB_PASSWORD:?Define NOTIF_DB_PASSWORD en backend/.env}
+      DB_NAME: notification
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en backend/.env}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:?Define RABBIT_USER en backend/.env}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Define RABBIT_PASSWORD en backend/.env}
+      TZ: UTC
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - app
 
   rabbitmq:
-    image: rabbitmq:3-management
-    container_name: votacion-rabbitmq
+    image: rabbitmq:4.2.9-management-alpine
+    restart: unless-stopped
+    logging: *default-logging
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:?Define RABBIT_USER en backend/.env}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:?Define RABBIT_PASSWORD en backend/.env}
+      TZ: UTC
     ports:
-      - "5672:5672"     # los servicios se conectan aquí
-      - "15672:15672"   # panel web
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
     volumes:
       - rabbit-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - app
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8081}:8080"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      voting-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app
 
 volumes:
   auth-data:
   voting-data:
+  voting-replica-data:
   notification-data:
   rabbit-data:
+
+networks:
+  app:
+    driver: bridge
