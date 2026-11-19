@@ -7,6 +7,8 @@ import psycopg2
 from fastapi import FastAPI, Header, HTTPException
 from psycopg2 import errors
 from psycopg2.extras import RealDictCursor
+from typing import List
+
 from pydantic import BaseModel
 
 JWT_SECRET = os.environ["JWT_SECRET"]
@@ -38,16 +40,30 @@ def consultar(host, sql, params=()):
         conn.close()
 
 
-def usuario_actual(authorization):
-    """Valida el JWT que emitio el Auth-Service y devuelve el id del usuario."""
+def datos_token(authorization):
+    """Valida el JWT que emitio el Auth-Service y devuelve su contenido."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Falta el token")
     token = authorization.split(" ", 1)[1]
     try:
         datos = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return int(datos["sub"])
+        datos["sub"] = int(datos["sub"])
+        return datos
     except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Token invalido o vencido")
+
+
+def usuario_actual(authorization):
+    """Devuelve el id del usuario del token."""
+    return datos_token(authorization)["sub"]
+
+
+def admin_actual(authorization):
+    """Exige un token con rol ADMIN; devuelve el id del administrador."""
+    datos = datos_token(authorization)
+    if datos.get("rol") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede hacer esto")
+    return datos["sub"]
 
 
 def publicar_evento(evento):
@@ -188,3 +204,151 @@ def votar(votacion_id: int, cuerpo: VotoIn, authorization: str = Header(None)):
         }
     )
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Administracion (solo rol ADMIN). Las escrituras van a la PRIMARIA.
+# ---------------------------------------------------------------------------
+
+# Estados a los que se puede pasar desde cada estado.
+TRANSICIONES = {
+    "PROGRAMADA": {"ACTIVA", "CANCELADA"},
+    "ACTIVA": {"FINALIZADA", "CANCELADA"},
+    "FINALIZADA": set(),
+    "CANCELADA": set(),
+}
+
+
+class VotacionIn(BaseModel):
+    titulo: str
+    descripcion: str
+    duracionDias: int = 7
+    abrirAhora: bool = True
+    opciones: List[str]
+
+
+class EstadoIn(BaseModel):
+    estado: str
+
+
+@app.post("/votaciones", status_code=201)
+def crear_votacion(cuerpo: VotacionIn, authorization: str = Header(None)):
+    admin_id = admin_actual(authorization)
+
+    titulo = cuerpo.titulo.strip()
+    descripcion = cuerpo.descripcion.strip()
+    opciones = [o.strip() for o in cuerpo.opciones if o and o.strip()]
+
+    if not 3 <= len(titulo) <= 150:
+        raise HTTPException(status_code=400, detail="El título debe tener entre 3 y 150 caracteres")
+    if len(descripcion) < 3:
+        raise HTTPException(status_code=400, detail="Agrega una descripción")
+    if not 1 <= cuerpo.duracionDias <= 90:
+        raise HTTPException(status_code=400, detail="La duración debe estar entre 1 y 90 días")
+    if len(opciones) < 2:
+        raise HTTPException(status_code=400, detail="Agrega al menos dos opciones")
+    if len(opciones) > 10:
+        raise HTTPException(status_code=400, detail="Máximo 10 opciones")
+    if any(len(o) > 150 for o in opciones):
+        raise HTTPException(status_code=400, detail="Cada opción puede tener máximo 150 caracteres")
+    if len({o.lower() for o in opciones}) != len(opciones):
+        raise HTTPException(status_code=400, detail="Hay opciones repetidas")
+
+    estado = "ACTIVA" if cuerpo.abrirAhora else "PROGRAMADA"
+
+    conn = conectar(DB_PRIMARIA)
+    try:
+        with conn.cursor() as cur:
+            # Una votacion programada empieza cuando el admin la abre; mientras tanto
+            # se guarda con inicio en el futuro para que la regla fecha_fin > fecha_inicio se cumpla.
+            cur.execute(
+                """
+                INSERT INTO votaciones (titulo, descripcion, fecha_inicio, fecha_fin, estado)
+                VALUES (%s, %s,
+                        CASE WHEN %s THEN now() ELSE now() + interval '1 day' END,
+                        CASE WHEN %s THEN now() ELSE now() + interval '1 day' END
+                          + make_interval(days => %s),
+                        %s)
+                RETURNING id
+                """,
+                (titulo, descripcion, cuerpo.abrirAhora, cuerpo.abrirAhora,
+                 cuerpo.duracionDias, estado),
+            )
+            votacion_id = cur.fetchone()[0]
+            for nombre in opciones:
+                cur.execute(
+                    "INSERT INTO opciones (votacion_id, nombre) VALUES (%s, %s)",
+                    (votacion_id, nombre),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    publicar_evento({"evento": "VOTACION_CREADA", "votacionId": votacion_id,
+                     "estado": estado, "adminId": admin_id})
+
+    # Se devuelve desde la PRIMARIA: la replica aun podria no tenerla.
+    return consultar(DB_PRIMARIA, SQL_VOTACIONES.format(filtro="WHERE v.id = %s"), (votacion_id,))[0]
+
+
+@app.patch("/votaciones/{votacion_id}/estado")
+def cambiar_estado(votacion_id: int, cuerpo: EstadoIn, authorization: str = Header(None)):
+    admin_id = admin_actual(authorization)
+    nuevo = cuerpo.estado.strip().upper()
+    if nuevo not in TRANSICIONES:
+        raise HTTPException(status_code=400, detail="Estado no válido")
+
+    conn = conectar(DB_PRIMARIA)
+    try:
+        with conn.cursor() as cur:
+            # FOR UPDATE: dos admins cambiando el estado a la vez no se pisan.
+            cur.execute("SELECT estado FROM votaciones WHERE id = %s FOR UPDATE", (votacion_id,))
+            fila = cur.fetchone()
+            if not fila:
+                raise HTTPException(status_code=404, detail="No se encontró la votación")
+            actual = fila[0]
+            if nuevo not in TRANSICIONES[actual]:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"No se puede pasar de {actual} a {nuevo}",
+                )
+
+            if nuevo == "ACTIVA":
+                # Al abrir una programada empieza ahora y conserva su duracion.
+                cur.execute(
+                    """
+                    UPDATE votaciones
+                    SET fecha_fin = now() + (fecha_fin - fecha_inicio),
+                        fecha_inicio = now(),
+                        estado = 'ACTIVA'
+                    WHERE id = %s
+                    """,
+                    (votacion_id,),
+                )
+            elif nuevo == "FINALIZADA":
+                # Se cierra ya: la fecha de fin queda en este momento.
+                cur.execute(
+                    """
+                    UPDATE votaciones
+                    SET fecha_fin = GREATEST(fecha_inicio + interval '1 second', now()),
+                        estado = 'FINALIZADA'
+                    WHERE id = %s
+                    """,
+                    (votacion_id,),
+                )
+            else:
+                cur.execute(
+                    "UPDATE votaciones SET estado = %s WHERE id = %s", (nuevo, votacion_id)
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    publicar_evento({"evento": "VOTACION_" + nuevo, "votacionId": votacion_id, "adminId": admin_id})
+    return consultar(DB_PRIMARIA, SQL_VOTACIONES.format(filtro="WHERE v.id = %s"), (votacion_id,))[0]

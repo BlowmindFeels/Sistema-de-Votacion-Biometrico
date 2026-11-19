@@ -1,22 +1,33 @@
 package com.example.devices.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.devices.data.EstadoVotacion
 import com.example.devices.data.Votacion
+import com.example.devices.ui.components.AvisoError
+import com.example.devices.ui.components.BotonPrincipal
 import com.example.devices.ui.components.EstadoBadge
 import com.example.devices.viewmodel.DetalleUiState
 import com.example.devices.viewmodel.DetalleVotacionViewModel
@@ -65,7 +76,7 @@ fun DetalleVotacionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Detalle") },
+                title = { Text("Votación") },
                 navigationIcon = {
                     IconButton(onClick = onVolver) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
@@ -100,9 +111,15 @@ fun DetalleVotacionScreen(
         AlertDialog(
             onDismissRequest = viewModel::cancelarConfirmacion,
             title = { Text("Confirmar voto") },
-            text = { Text("Vas a votar por «$nombreOpcion». Una vez emitido, no podrás cambiarlo.") },
+            icon = { Icon(Icons.Filled.Fingerprint, contentDescription = null) },
+            text = {
+                Text(
+                    "Vas a votar por «$nombreOpcion». Después confirmarás con tu huella. " +
+                        "Una vez emitido, el voto no se puede cambiar."
+                )
+            },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmarVoto) { Text("Votar") }
+                TextButton(onClick = viewModel::confirmarVoto) { Text("Continuar") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::cancelarConfirmacion) { Text("Cancelar") }
@@ -121,70 +138,128 @@ private fun ContenidoDetalle(
 ) {
     val puedeVotar = votacion.estado == EstadoVotacion.ACTIVA && !state.yaVoto
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp)
-    ) {
-        EstadoBadge(votacion.estado)
-        Spacer(Modifier.height(8.dp))
-        Text(votacion.titulo, style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-        Text(votacion.descripcion, style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Del ${votacion.fechaInicio} al ${votacion.fechaFin}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            EstadoBadge(votacion.estado)
+            Spacer(Modifier.height(12.dp))
+            Text(votacion.titulo, style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(8.dp))
+            Text(votacion.descripcion, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.DateRange,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Del ${votacion.fechaInicio} al ${votacion.fechaFin}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
-        Spacer(Modifier.height(24.dp))
-        Text("Opciones", style = MaterialTheme.typography.titleMedium)
-        votacion.opciones.forEach { opcion ->
-            FilaOpcion(
-                nombre = opcion.nombre,
-                seleccionada = state.opcionSeleccionada == opcion.id,
-                habilitada = puedeVotar && !state.enviando,
-                onClick = { onSeleccionar(opcion.id) }
-            )
-        }
+            Spacer(Modifier.height(20.dp))
+            when {
+                state.yaVoto -> Aviso(
+                    icono = Icons.Filled.CheckCircle,
+                    texto = "Tu voto quedó registrado. Gracias por participar.",
+                    fondo = MaterialTheme.colorScheme.primaryContainer,
+                    contenido = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                votacion.estado == EstadoVotacion.PROGRAMADA -> Aviso(
+                    icono = Icons.Filled.Schedule,
+                    texto = "Esta votación aún no ha abierto.",
+                    fondo = MaterialTheme.colorScheme.tertiaryContainer,
+                    contenido = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                votacion.estado != EstadoVotacion.ACTIVA -> Aviso(
+                    icono = Icons.Filled.Lock,
+                    texto = "Esta votación está cerrada. Puedes consultar los resultados.",
+                    fondo = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contenido = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
-        Spacer(Modifier.height(16.dp))
-        when {
-            state.yaVoto -> Text(
-                "Ya emitiste tu voto en esta votación.",
-                color = MaterialTheme.colorScheme.primary
+            Spacer(Modifier.height(16.dp))
+            Text(
+                if (puedeVotar) "Elige una opción" else "Opciones",
+                style = MaterialTheme.typography.titleMedium
             )
-            votacion.estado != EstadoVotacion.ACTIVA -> Text(
-                "Esta votación no está abierta para votar.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        state.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
-
-        Spacer(Modifier.height(16.dp))
-        if (puedeVotar) {
-            Button(
-                onClick = onVotar,
-                enabled = state.opcionSeleccionada != null && !state.enviando,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (state.enviando) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                votacion.opciones.forEach { opcion ->
+                    FilaOpcion(
+                        nombre = opcion.nombre,
+                        seleccionada = state.opcionSeleccionada == opcion.id,
+                        habilitada = puedeVotar && !state.enviando,
+                        onClick = { onSeleccionar(opcion.id) }
                     )
-                } else {
-                    Text("Emitir voto")
+                }
+            }
+
+            state.error?.let {
+                Spacer(Modifier.height(12.dp))
+                AvisoError(it)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
+        // Acciones fijas abajo, siempre visibles aunque haya muchas opciones.
+        Surface(tonalElevation = 3.dp, shadowElevation = 6.dp) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                if (puedeVotar) {
+                    BotonPrincipal(
+                        texto = "Votar con mi huella",
+                        onClick = onVotar,
+                        cargando = state.enviando,
+                        habilitado = state.opcionSeleccionada != null,
+                        icono = Icons.Filled.Fingerprint
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                OutlinedButton(
+                    onClick = onVerResultados,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Icon(Icons.Filled.BarChart, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ver resultados")
                 }
             }
         }
-        TextButton(onClick = onVerResultados, modifier = Modifier.fillMaxWidth()) {
-            Text("Ver resultados")
+    }
+}
+
+@Composable
+private fun Aviso(
+    icono: ImageVector,
+    texto: String,
+    fondo: Color,
+    contenido: Color
+) {
+    Surface(
+        color = fondo,
+        contentColor = contenido,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icono, contentDescription = null, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(texto, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -196,7 +271,15 @@ private fun FilaOpcion(
     habilitada: Boolean,
     onClick: () -> Unit
 ) {
-    Row(
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = if (seleccionada) cs.primaryContainer else cs.surfaceContainerLowest,
+        contentColor = if (seleccionada) cs.onPrimaryContainer else cs.onSurface,
+        border = BorderStroke(
+            width = if (seleccionada) 2.dp else 1.dp,
+            color = if (seleccionada) cs.primary else cs.outlineVariant
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .selectable(
@@ -205,11 +288,14 @@ private fun FilaOpcion(
                 role = Role.RadioButton,
                 onClick = onClick
             )
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        RadioButton(selected = seleccionada, onClick = null, enabled = habilitada)
-        Spacer(Modifier.width(12.dp))
-        Text(nombre, style = MaterialTheme.typography.bodyLarge)
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = seleccionada, onClick = null, enabled = habilitada)
+            Spacer(Modifier.width(12.dp))
+            Text(nombre, style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }

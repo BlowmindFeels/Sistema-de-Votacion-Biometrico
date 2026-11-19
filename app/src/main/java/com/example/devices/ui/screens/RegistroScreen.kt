@@ -3,6 +3,12 @@ package com.example.devices.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -10,10 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.devices.ui.components.AvisoError
+import com.example.devices.ui.components.BotonPrincipal
 import com.example.devices.ui.components.CampoPassword
 import com.example.devices.ui.components.CampoTexto
 import com.example.devices.viewmodel.RegistroViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegistroScreen(
     onRegistroExitoso: () -> Unit,
@@ -26,57 +35,89 @@ fun RegistroScreen(
         if (state.registroExitoso) onRegistroExitoso()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Crear cuenta", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(24.dp))
-
-        CampoTexto(state.nombre, viewModel::onNombreChange, "Nombre completo", state.errorNombre)
-        Spacer(Modifier.height(8.dp))
-        CampoTexto(
-            state.documento, viewModel::onDocumentoChange, "Documento",
-            state.errorDocumento, KeyboardType.Number
-        )
-        Spacer(Modifier.height(8.dp))
-        CampoTexto(
-            state.correo, viewModel::onCorreoChange, "Correo electrónico",
-            state.errorCorreo, KeyboardType.Email
-        )
-        Spacer(Modifier.height(8.dp))
-        CampoPassword(state.password, viewModel::onPasswordChange, "Contraseña", state.errorPassword)
-
-        state.errorGeneral?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Crear cuenta") },
+                navigationIcon = {
+                    IconButton(onClick = onVolver, enabled = !state.cargando) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                }
+            )
         }
-
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = viewModel::registrar,
-            enabled = !state.cargando,
-            modifier = Modifier.fillMaxWidth()
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp)
         ) {
-            if (state.cargando) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            } else {
-                Text("Registrarme")
-            }
-        }
+            Text(
+                "Regístrate con tus datos para participar en las votaciones de tu comunidad.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(20.dp))
 
-        TextButton(onClick = onVolver, enabled = !state.cargando) {
-            Text("Ya tengo cuenta")
+            CampoTexto(
+                state.nombre, viewModel::onNombreChange, "Nombre completo", state.errorNombre,
+                icono = Icons.Filled.Person, mayusculas = true
+            )
+            CampoTexto(
+                state.documento, viewModel::onDocumentoChange, "Número de documento",
+                state.errorDocumento, KeyboardType.Number, icono = Icons.Filled.Badge,
+                ayuda = "Entre 6 y 10 dígitos, sin puntos"
+            )
+            CampoTexto(
+                state.correo, viewModel::onCorreoChange, "Correo electrónico",
+                state.errorCorreo, KeyboardType.Email, icono = Icons.Filled.Email
+            )
+            CampoPassword(
+                state.password, viewModel::onPasswordChange, "Contraseña", state.errorPassword,
+                ayuda = "Mínimo 8 caracteres"
+            )
+
+            state.errorGeneral?.let {
+                Spacer(Modifier.height(8.dp))
+                AvisoError(it)
+            }
+
+            Spacer(Modifier.height(16.dp))
+            BotonPrincipal(
+                texto = "Crear mi cuenta",
+                onClick = viewModel::registrar,
+                cargando = state.cargando
+            )
+
+            Spacer(Modifier.height(20.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Tu contraseña se guarda cifrada y tu huella nunca sale del teléfono. " +
+                            "Nadie puede ver por qué opción votaste.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            TextButton(
+                onClick = onVolver,
+                enabled = !state.cargando,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("Ya tengo cuenta")
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

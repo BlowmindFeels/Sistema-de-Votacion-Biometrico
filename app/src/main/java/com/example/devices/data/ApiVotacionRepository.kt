@@ -40,7 +40,7 @@ object ApiVotacionRepository : VotacionRepository {
         }
 }
 
-private fun VotacionDto.aModelo() = Votacion(
+internal fun VotacionDto.aModelo() = Votacion(
     id = id,
     titulo = titulo,
     descripcion = descripcion,

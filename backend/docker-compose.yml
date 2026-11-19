@@ -42,6 +42,10 @@ services:
       DB_PASSWORD: ${AUTH_DB_PASSWORD:?Define AUTH_DB_PASSWORD en backend/.env}
       DB_NAME: auth
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en backend/.env}
+      ADMIN_DOCUMENTO: ${ADMIN_DOCUMENTO:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NOMBRE: ${ADMIN_NOMBRE:-Administrador}
+      ADMIN_CORREO: ${ADMIN_CORREO:-admin@votacion.local}
       TZ: UTC
     depends_on:
       auth-db:

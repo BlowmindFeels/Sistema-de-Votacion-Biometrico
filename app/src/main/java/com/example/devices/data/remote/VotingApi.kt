@@ -4,6 +4,7 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 
@@ -29,4 +30,18 @@ interface VotingApi {
         @Body body: VotoRequest,
         @Header("Authorization") bearer: String
     ): Response<OkResponse>
+
+    // ---- Solo ADMIN ----
+    @POST("votaciones")
+    suspend fun crear(
+        @Body body: CrearVotacionRequest,
+        @Header("Authorization") bearer: String
+    ): Response<VotacionDto>
+
+    @PATCH("votaciones/{id}/estado")
+    suspend fun cambiarEstado(
+        @Path("id") id: Int,
+        @Body body: EstadoRequest,
+        @Header("Authorization") bearer: String
+    ): Response<VotacionDto>
 }

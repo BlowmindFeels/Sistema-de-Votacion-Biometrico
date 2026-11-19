@@ -10,4 +10,8 @@ object Routes {
 
     const val RESULTADOS = "resultados/{votacionId}"
     fun resultados(id: Int) = "resultados/$id"
+
+    // Solo para administradores
+    const val ADMIN = "admin"
+    const val NUEVA_VOTACION = "admin/nueva"
 }

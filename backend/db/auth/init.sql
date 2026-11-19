@@ -4,5 +4,7 @@ CREATE TABLE usuarios (
     documento      VARCHAR(10)  NOT NULL UNIQUE,
     correo         VARCHAR(150) NOT NULL,
     password_hash  VARCHAR(100) NOT NULL,
-    fecha_registro TIMESTAMPTZ  NOT NULL DEFAULT now()
+    rol            VARCHAR(12)  NOT NULL DEFAULT 'CIUDADANO',
+    fecha_registro TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT usuarios_rol_check CHECK (rol IN ('CIUDADANO','ADMIN'))
 );

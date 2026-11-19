@@ -156,6 +156,27 @@ Si aún están activos los contenedores del Compose anterior, detén ese stack s
 `-v` antes de arrancar la versión nueva: ambos usan los mismos volúmenes y
 puertos. No arranques dos PostgreSQL sobre el mismo volumen simultáneamente.
 
+## Administrador
+
+La app tiene dos roles: `CIUDADANO` (todos los que se registran) y `ADMIN`.
+
+1. En `backend/.env` define el administrador inicial:
+   ```
+   ADMIN_DOCUMENTO=1000000001
+   ADMIN_PASSWORD=una-clave-de-8-o-mas
+   ```
+2. Reinicia: `.\docker.ps1 up`. Al arrancar, Auth-Service agrega la columna `rol` si la base es antigua y crea ese usuario (o lo promueve a ADMIN si el documento ya existía).
+3. Ingresa en la app con ese documento y contraseña. Aparece el botón **Administrar**.
+
+Desde el panel el administrador puede crear votaciones (abiertas de inmediato o programadas), abrir, finalizar o cancelar votaciones y dar o quitar el rol de administrador a otros usuarios. El backend valida el rol dentro del token en cada petición: ocultar los botones en la app no es la protección.
+
+| Método | Ruta (por el gateway) | Qué hace |
+| --- | --- | --- |
+| POST | `/votaciones` | Crea una votación con sus opciones |
+| PATCH | `/votaciones/{id}/estado` | PROGRAMADA → ACTIVA/CANCELADA, ACTIVA → FINALIZADA/CANCELADA |
+| GET | `/auth/usuarios` | Lista usuarios (sin contraseñas) |
+| PATCH | `/auth/usuarios/{id}/rol` | Cambia el rol; un admin no puede quitárselo a sí mismo |
+
 ## Puertos, Android y desarrollo
 
 | Host | Contenedor | Uso |

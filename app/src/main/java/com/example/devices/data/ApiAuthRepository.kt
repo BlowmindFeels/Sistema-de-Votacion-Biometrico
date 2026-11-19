@@ -11,7 +11,7 @@ object ApiAuthRepository : AuthRepository {
     override suspend fun login(documento: String, password: String): Result<String> =
         llamar { ApiClient.auth.login(LoginRequest(documento, password)) }
             .map { r ->
-                SesionManager.iniciar(r.token, r.nombre)
+                SesionManager.iniciar(r.token, r.nombre, documento, r.rol)
                 r.token
             }
 

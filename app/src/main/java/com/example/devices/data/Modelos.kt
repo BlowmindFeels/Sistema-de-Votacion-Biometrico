@@ -28,3 +28,11 @@ data class Resultados(
     val total: Int,
     val opciones: List<OpcionResultado>
 )
+
+data class Usuario(
+    val id: Int,
+    val nombre: String,
+    val documento: String,
+    val correo: String,
+    val esAdmin: Boolean
+)
